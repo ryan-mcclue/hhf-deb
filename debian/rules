@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	rm -rf build 
+
+override_dh_auto_build:
+	. misc/build
+
+override_dh_auto_install:
+	mkdir -p debian/hhf/usr/bin 
+	cp build/ubuntu-hhf debian/hhf/usr/bin/hhf
+
+	mkdir -p debian/hhf/usr/share/applications 
+	cp misc/hhf.desktop debian/hhf/usr/share/applications
+
+	mkdir -p debian/hhf/usr/share/pixmaps 
+	cp misc/hhf.png debian/hhf/usr/share/pixmaps

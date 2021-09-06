@@ -1,0 +1,16 @@
+Source: hhf
+Section: misc
+Priority: optional
+Maintainer: Ryan McClue <re.mcclue@protonmail.com>
+Build-Depends: debhelper (>=11~),
+ debhelper-compat (=12),
+ libx11-dev
+Standards-Version: 4.5.0
+Homepage: https://github.com/ryan-mcclue/hhf/releases
+
+Package: hhf
+Architecture: any
+Multi-Arch: foreign
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Debian package for hhf.
+ Handmade Hero Fork is an Ubuntu/Linux fork of Casey Muratori's brilliant Handmade Hero
