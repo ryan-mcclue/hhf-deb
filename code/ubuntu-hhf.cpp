@@ -7,14 +7,25 @@
 #include <string_view>
 #include <cstdio>
 #include <cstring>
+#include <cerrno>
+#include <cstdlib>
 
 #define INTERNAL static
+#define GLOBAL static
+#define LOCAL_PERSIST static
+
+GLOBAL Display *xlib_display;
+GLOBAL XVisualInfo xlib_visual_info;
+GLOBAL XImage *xlib_image;
 
 #if defined(HHF_DEV)
 INTERNAL void __bp(void) { return; }
+INTERNAL void __ebp(void) { __attribute__((unused)) char *err = strerror(errno); }
 #define BP() __bp()
+#define EBP() __ebp()
 #else
 #define BP()
+#define EBP()
 #endif
 
 INTERNAL int
@@ -46,10 +57,46 @@ xlib_io_error_handler(Display *display)
   return 1;
 }
 
+INTERNAL void
+xlib_resize_image(int width, int height)
+{
+  if (xlib_image != NULL)
+  {
+    XDestroyImage(xlib_image);
+  }
+
+  int bytes_per_pixel = 4;
+  char *back_buffer = (char *)calloc(width * height, bytes_per_pixel);
+  if (back_buffer == NULL)
+  {
+    // TODO(Ryan): Error logging
+    EBP();
+  }
+
+  int xlib_image_offset = 0;
+  int xlib_image_scanline_offset = 0;
+  int xlib_image_pad_bits = 32;
+  xlib_image = XCreateImage(xlib_display, xlib_visual_info.visual, xlib_visual_info.depth,
+                            ZPixmap, xlib_image_offset, back_buffer, width, height,
+                            xlib_image_pad_bits, xlib_image_scanline_offset);
+  if (xlib_image == NULL)
+  {
+    // TODO(Ryan): Error logging
+    BP();
+  }
+}
+
+INTERNAL void
+xlib_display_image(GC gc, Window window, int x0, int y0, int width, int height)
+{
+  XPutImage(xlib_display, window, gc, xlib_image,
+      x0, y0, x0, y0, width, height); 
+}
+
 int
 main(int argc, char *argv[])
 {
-  Display *xlib_display = XOpenDisplay(NULL);
+  xlib_display = XOpenDisplay(NULL);
   if (xlib_display == NULL)
   {
     // TODO(Ryan): Error logging
@@ -61,7 +108,6 @@ main(int argc, char *argv[])
 
   int xlib_screen = XDefaultScreen(xlib_display);
   int xlib_desired_screen_depth = 24;
-  XVisualInfo xlib_visual_info = {};
   Status xlib_visual_info_status = XMatchVisualInfo(xlib_display, xlib_screen, 
                                                     xlib_desired_screen_depth, TrueColor,
                                                     &xlib_visual_info);
@@ -93,11 +139,13 @@ main(int argc, char *argv[])
   int xlib_window_name_property_granularity = 8;
   XChangeProperty(xlib_display, xlib_window, XA_WM_NAME, XA_STRING, 
       xlib_window_name_property_granularity, PropModeReplace, 
-      reinterpret_cast<const unsigned char *>(xlib_window_name.data()), 
+      (const unsigned char *)xlib_window_name.data(), 
       xlib_window_name.length());
 
   XMapWindow(xlib_display, xlib_window); 
   XFlush(xlib_display);
+
+  GC xlib_gc = XDefaultGC(xlib_display, xlib_screen);
 
   Atom xlib_wm_delete_atom = XInternAtom(xlib_display, "WM_DELETE_WINDOW", False);
   if (xlib_wm_delete_atom == None) 
@@ -114,7 +162,11 @@ main(int argc, char *argv[])
   int xlib_window_protocols_property_granularity = 32;
   XChangeProperty(xlib_display, xlib_window, xlib_wm_atom, XA_ATOM, 
       xlib_window_protocols_property_granularity, PropModeReplace, 
-      reinterpret_cast<unsigned char *>(&xlib_wm_delete_atom), 1);
+      (unsigned char *)&xlib_wm_delete_atom, 1);
+
+  int xlib_image_width = xlib_window_x1 - xlib_window_x0;
+  int xlib_image_height = xlib_window_y1 - xlib_window_y0;
+  xlib_resize_image(xlib_image_width, xlib_image_height);
 
   bool want_to_run = true;
   while (want_to_run)
@@ -126,21 +178,25 @@ main(int argc, char *argv[])
       {
         case ConfigureNotify:
         {
-          printf("window width: %d\n", xlib_event.xconfigure.width);
-          printf("window height: %d\n", xlib_event.xconfigure.height);
+          xlib_image_width = xlib_event.xconfigure.width;
+          xlib_image_height = xlib_event.xconfigure.height;
+          // TODO(Ryan): Restrict to particular resolutions that align with our art
+          xlib_resize_image(xlib_image_width, xlib_image_height);
         } break;
       }
     }
     
     while (XCheckTypedWindowEvent(xlib_display, xlib_window, ClientMessage, &xlib_event))
     {
-      if (xlib_event.xclient.data.l[0] == static_cast<long>(xlib_wm_delete_atom))
+      if (xlib_event.xclient.data.l[0] == (long)(xlib_wm_delete_atom))
       {
         XDestroyWindow(xlib_display, xlib_window);
         want_to_run = false;
         break;
       }
     }
+
+    xlib_display_image(xlib_gc, xlib_window, 0, 0, xlib_image_width, xlib_image_height);
   }
 
   return 0;
